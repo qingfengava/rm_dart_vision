@@ -155,7 +155,10 @@ public:
         max_area_ = config["contours"]["max_area"].as<double>();
         min_area_ = config["contours"]["min_area"].as<double>();
         one_one_diff_ = config["contours"]["one_one_diff"].as<double>();
-        initGUI();
+        if (config["enable_gui"])
+            enable_gui_ = config["enable_gui"].as<bool>();
+        if (enable_gui_)
+            initGUI();
     }
     cv::Mat preprocess(const cv::Mat& frame) {
         cv::Mat mask;
@@ -226,13 +229,16 @@ public:
             cv::circle(frame, center, 3, cv::Scalar(0, 255, 0), -1);
         }
 
-        cv::imshow("mask", mask);
-        cv::waitKey(1); // 非阻塞
+        if (enable_gui_) {
+            cv::imshow("mask", mask);
+            cv::waitKey(1);
+        }
 
         return lights;
     }
     double min_area_ = 100;
     double max_area_ = 10000;
     double one_one_diff_;
+    bool enable_gui_ = true;
 };
 } // namespace dart_vision

@@ -11,9 +11,15 @@ serial:
 
 
 detect:
+  enable_gui: true          # 是否显示 HSV mask 调参窗口，比赛时关闭
   D_threshold: 30
   contours:
     min_area: 10
     max_area: 50000000
     one_one_diff: 0.4
+
+pipeline:
+  enable_gui: true           # 是否显示主 frame 窗口，比赛时关闭
+  frame_queue_size: 2        # 相机→检测 队列深度
+  result_queue_size: 1       # 检测→控制 队列深度
 
