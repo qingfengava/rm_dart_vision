@@ -1,0 +1,19 @@
+hik:
+  target_sn: DA1094115
+  acquisition_frame_rate: 200
+  exposure_time: 1500
+  gain: 16.9
+serial:
+  device_name: /dev/ttyACM0 
+  baud_rate: 115200
+  char_size: 8
+  read_buf_size: 4096
+
+
+detect:
+  D_threshold: 30
+  contours:
+    min_area: 10
+    max_area: 50000000
+    one_one_diff: 0.4
+
