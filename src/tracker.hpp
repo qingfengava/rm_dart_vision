@@ -1,0 +1,342 @@
+#pragma once
+#include "Hungarian.h"
+#include "extended_kalman_filter.hpp"
+#include "tracker_mode.hpp"
+#include "type.hpp"
+#include <Eigen/Dense>
+#include <cmath>
+#include <memory>
+#include <vector>
+
+namespace dart_vision {
+
+constexpr double INF_COST = 1e9;
+constexpr int X_N = 6, Z_N = 4;
+
+struct Predict {
+    double dt = 0.0;
+    template<typename T>
+    void operator()(const T x0[X_N], T x1[X_N]) const {
+        x1[0] = x0[0] + x0[2] * T(dt);
+        x1[1] = x0[1] + x0[3] * T(dt);
+        x1[2] = x0[2];
+        x1[3] = x0[3];
+        x1[4] = x0[4];
+        x1[5] = x0[5];
+    }
+};
+
+struct Measure {
+    template<typename T>
+    void operator()(const T x[X_N], T z[Z_N]) const {
+        z[0] = x[0]; // z_cx = cx
+        z[1] = x[1]; // z_cy = cy
+        z[2] = x[4]; // z_w  = w
+        z[3] = x[5]; // z_h  = h
+    }
+};
+
+using EKF = kalman_hybird_lib::ExtendedKalmanFilter<X_N, Z_N, Predict, Measure>;
+using MatrixXX = EKF::MatrixXX;
+using MatrixZZ = EKF::MatrixZZ;
+using MatrixX1 = EKF::MatrixX1;
+using MatrixZ1 = EKF::MatrixZ1;
+
+struct Track {
+    int id = 0;
+    enum State { TENTATIVE, CONFIRMED, LOST } state = TENTATIVE;
+    int hits = 0;
+    int misses = 0;
+    int age = 0;
+    std::unique_ptr<EKF> ekf;
+    MatrixX1 x_pred = MatrixX1::Zero();
+};
+
+class KalmanTracker {
+public:
+    KalmanTracker(const YAML::Node& config) {
+        stationary_.load(config["stationary"]);
+        moving_.load(config["moving"]);
+
+        confirm_frames_ = config["confirm_frames"].as<int>(3);
+        max_tentative_frames_ = config["max_tentative_frames"].as<int>(5);
+        gate_threshold_ = config["gate_threshold"].as<double>(9.49);
+        transition_alpha_ = config["transition_alpha"].as<double>(0.3);
+        v_max_ = config["v_max"].as<double>(200.0);
+        iteration_num_ = config["iteration_num"].as<int>(2);
+
+        std::string mode_str = config["initial_mode"].as<std::string>("base_stationary");
+        target_mode_ = modeFromString(mode_str);
+        current_mode_ = target_mode_;
+
+        const auto& p = paramsFor(current_mode_);
+        current_q_v_ = p.q_v;
+        current_q_size_ = p.q_size;
+        current_r_pos_ = p.r_pos;
+        current_r_size_ = p.r_size;
+    }
+
+    void setMode(TrackerMode mode) { target_mode_ = mode; }
+
+    TrackerMode mode() const { return target_mode_; }
+
+    void update(const std::vector<GreenLight>& detections, float dt, int /*frame_width*/) {
+        current_dt_ = dt;
+        smoothParams();
+
+        predictAll();
+
+        if (!detections.empty()) {
+            associateAndUpdate(detections);
+        } else {
+            for (auto& t : tracks_)
+                t.misses++;
+        }
+
+        manageLifecycle();
+    }
+
+    bool bestTrack(GreenLight& out) const {
+        const Track* best = nullptr;
+        float best_score = -1.0f;
+        for (const auto& t : tracks_) {
+            if (t.state != Track::CONFIRMED) continue;
+            float score = static_cast<float>(t.hits) / static_cast<float>(t.age + 1);
+            if (score > best_score) {
+                best_score = score;
+                best = &t;
+            }
+        }
+        if (!best) return false;
+        const MatrixX1& x = best->x_pred;
+        out.center = cv::Point2f(static_cast<float>(x[0]), static_cast<float>(x[1]));
+        out.bbox = cv::Rect2f(
+            static_cast<float>(x[0] - x[4] * 0.5f),
+            static_cast<float>(x[1] - x[5] * 0.5f),
+            static_cast<float>(x[4]),
+            static_cast<float>(x[5])
+        );
+        out.score = best_score;
+        return true;
+    }
+
+    const std::vector<Track>& tracks() const { return tracks_; }
+
+private:
+    const ModeParams& paramsFor(TrackerMode m) const {
+        return (m == TrackerMode::BASE_MOVING) ? moving_ : stationary_;
+    }
+
+    void smoothParams() {
+        const auto& p = paramsFor(target_mode_);
+        float alpha = transition_alpha_;
+        current_q_v_ = current_q_v_ * (1.0f - alpha) + p.q_v * alpha;
+        current_q_size_ = current_q_size_ * (1.0f - alpha) + p.q_size * alpha;
+        current_r_pos_ = current_r_pos_ * (1.0f - alpha) + p.r_pos * alpha;
+        current_r_size_ = current_r_size_ * (1.0f - alpha) + p.r_size * alpha;
+
+        if (std::abs(current_q_v_ - p.q_v) < 0.01f) {
+            current_q_v_ = p.q_v;
+            current_q_size_ = p.q_size;
+            current_r_pos_ = p.r_pos;
+            current_r_size_ = p.r_size;
+            current_mode_ = target_mode_;
+        }
+    }
+
+    void predictAll() {
+        Predict pred{current_dt_};
+        for (auto& t : tracks_) {
+            t.ekf->setPredictFunc(pred);
+            t.x_pred = t.ekf->predict();
+            t.age++;
+        }
+    }
+
+    void associateAndUpdate(const std::vector<GreenLight>& detections) {
+        size_t m = tracks_.size();
+        size_t n = detections.size();
+
+        if (m == 0) {
+            for (size_t j = 0; j < n; ++j)
+                createTrack(detections[j]);
+            return;
+        }
+
+        H_mat_ << 1, 0, 0, 0, 0, 0,
+                  0, 1, 0, 0, 0, 0,
+                  0, 0, 0, 0, 1, 0,
+                  0, 0, 0, 0, 0, 1;
+
+        MatrixZZ R = buildR();
+
+        // Build cost matrix
+        auto cost = std::vector<std::vector<double>>(m, std::vector<double>(n, 0.0));
+        for (size_t i = 0; i < m; ++i) {
+            const MatrixXX& P = tracks_[i].ekf->getPriorCovariance();
+            MatrixZZ S = H_mat_ * P * H_mat_.transpose() + R;
+            MatrixZZ S_inv = S.inverse();
+            MatrixX1& xp = tracks_[i].x_pred;
+
+            for (size_t j = 0; j < n; ++j) {
+                MatrixZ1 z;
+                z << detections[j].center.x, detections[j].center.y,
+                     detections[j].bbox.width, detections[j].bbox.height;
+                MatrixZ1 z_pred;
+                z_pred << xp[0], xp[1], xp[4], xp[5];
+                MatrixZ1 innov = z - z_pred;
+                double mahal = innov.transpose() * S_inv * innov;
+                cost[i][j] = (mahal < gate_threshold_) ? mahal : INF_COST;
+            }
+        }
+
+        // Hungarian
+        HungarianAlgorithm ha;
+        std::vector<int> assignment(m, -1);
+        ha.Solve(cost, assignment);
+
+        // Update matched, mark misses
+        for (size_t i = 0; i < m; ++i) {
+            int j = assignment[i];
+            if (j >= 0 && static_cast<size_t>(j) < n && cost[i][j] < INF_COST) {
+                MatrixZ1 z;
+                z << detections[j].center.x, detections[j].center.y,
+                     detections[j].bbox.width, detections[j].bbox.height;
+                tracks_[i].x_pred = tracks_[i].ekf->update(z);
+                tracks_[i].hits++;
+                tracks_[i].misses = 0;
+            } else {
+                tracks_[i].misses++;
+                tracks_[i].hits = 0;
+            }
+        }
+
+        // Create new tracks for unmatched detections
+        for (size_t j = 0; j < n; ++j) {
+            bool matched = false;
+            for (int a : assignment) {
+                if (a == static_cast<int>(j)) { matched = true; break; }
+            }
+            if (!matched) createTrack(detections[j]);
+        }
+    }
+
+    void createTrack(const GreenLight& det) {
+        Track t;
+        t.id = next_id_++;
+        t.x_pred << det.center.x, det.center.y, 0.0, 0.0,
+                    det.bbox.width, det.bbox.height;
+
+        Predict pred{current_dt_};
+        Measure meas{};
+
+        auto uq = [this]() -> MatrixXX {
+            float dt = current_dt_;
+            float qv = current_q_v_, qs = current_q_size_;
+            MatrixXX Q = MatrixXX::Zero();
+            Q(0, 0) = qv * dt * dt * dt / 3.0;
+            Q(1, 1) = qv * dt * dt * dt / 3.0;
+            Q(2, 2) = qv * dt;
+            Q(3, 3) = qv * dt;
+            Q(4, 4) = qs * dt * dt * dt / 3.0;
+            Q(5, 5) = qs * dt * dt * dt / 3.0;
+            Q(0, 2) = Q(2, 0) = qv * dt * dt / 2.0;
+            Q(1, 3) = Q(3, 1) = qv * dt * dt / 2.0;
+            return Q;
+        };
+
+        auto ur = [this](const MatrixZ1&) -> MatrixZZ {
+            return buildR();
+        };
+
+        MatrixXX P0 = MatrixXX::Identity();
+        P0(0, 0) = current_r_pos_;
+        P0(1, 1) = current_r_pos_;
+        P0(2, 2) = v_max_ * v_max_;
+        P0(3, 3) = v_max_ * v_max_;
+        P0(4, 4) = current_r_size_;
+        P0(5, 5) = current_r_size_;
+
+        t.ekf = std::make_unique<EKF>(pred, meas, uq, ur, P0);
+        t.ekf->setState(t.x_pred);
+        t.ekf->setIterationNum(iteration_num_);
+        tracks_.push_back(std::move(t));
+    }
+
+    void manageLifecycle() {
+        auto it = tracks_.begin();
+        while (it != tracks_.end()) {
+            // State transitions
+            if (it->state == Track::TENTATIVE) {
+                if (it->hits >= confirm_frames_)
+                    it->state = Track::CONFIRMED;
+                else if (it->age > max_tentative_frames_ || it->misses > 0) {
+                    it = tracks_.erase(it);
+                    continue;
+                }
+            } else if (it->state == Track::CONFIRMED) {
+                int max_lost = (target_mode_ == TrackerMode::BASE_MOVING)
+                                   ? moving_.max_lost_frames
+                                   : stationary_.max_lost_frames;
+                if (it->misses > max_lost) {
+                    it = tracks_.erase(it);
+                    continue;
+                } else if (it->misses > 0) {
+                    it->state = Track::LOST;
+                }
+            } else { // LOST
+                int max_lost = (target_mode_ == TrackerMode::BASE_MOVING)
+                                   ? moving_.max_lost_frames
+                                   : stationary_.max_lost_frames;
+                if (it->hits > 0)
+                    it->state = Track::CONFIRMED;
+                else if (it->misses > max_lost) {
+                    it = tracks_.erase(it);
+                    continue;
+                }
+            }
+            ++it;
+        }
+    }
+
+    MatrixZZ buildR() const {
+        MatrixZZ R = MatrixZZ::Zero();
+        R(0, 0) = current_r_pos_;
+        R(1, 1) = current_r_pos_;
+        R(2, 2) = current_r_size_;
+        R(3, 3) = current_r_size_;
+        return R;
+    }
+
+    // Fixed H (observation picks cx,cy,w,h from state)
+    Eigen::Matrix<double, Z_N, X_N> H_mat_ = []() {
+        Eigen::Matrix<double, Z_N, X_N> H = Eigen::Matrix<double, Z_N, X_N>::Zero();
+        H(0, 0) = 1;
+        H(1, 1) = 1;
+        H(2, 4) = 1;
+        H(3, 5) = 1;
+        return H;
+    }();
+
+    ModeParams stationary_, moving_;
+    TrackerMode current_mode_ = TrackerMode::BASE_STATIONARY;
+    TrackerMode target_mode_ = TrackerMode::BASE_STATIONARY;
+
+    float current_q_v_ = 0.5f;
+    float current_q_size_ = 1.0f;
+    float current_r_pos_ = 4.0f;
+    float current_r_size_ = 9.0f;
+    float current_dt_ = 0.005f;
+
+    int confirm_frames_ = 3;
+    int max_tentative_frames_ = 5;
+    int iteration_num_ = 2;
+    double gate_threshold_ = 9.49;
+    double transition_alpha_ = 0.3;
+    double v_max_ = 200.0;
+    int next_id_ = 0;
+
+    std::vector<Track> tracks_;
+};
+
+} // namespace dart_vision

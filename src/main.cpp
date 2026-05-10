@@ -2,6 +2,8 @@
 #include "hik.hpp"
 #include "serial_driver.hpp"
 #include "thread_safe_queue.hpp"
+#include "tracker.hpp"
+#include "tracker_mode.hpp"
 #include "type.hpp"
 #include <atomic>
 #include <chrono>
@@ -35,7 +37,6 @@ void camera_thread_fn(HikCamera& camera, ThreadSafeQueue<FramePacket>& frame_q) 
     while (app_running) {
         cv::Mat src = camera.read();
         if (src.empty()) continue;
-
         FramePacket pkt;
         pkt.frame = src.clone();
         pkt.timestamp = std::chrono::steady_clock::now();
@@ -49,9 +50,7 @@ void detect_thread_fn(Detect& detect,
     while (app_running) {
         FramePacket pkt;
         if (!frame_q.pop(pkt, 5)) continue;
-
         auto lights = detect.detect(pkt.frame);
-
         ResultPacket res;
         res.lights = std::move(lights);
         res.annotated_frame = pkt.frame;
@@ -68,6 +67,7 @@ int main() {
     Detect detect(config["detect"]);
     HikCamera camera(config["hik"]);
     SerialDriver serial(config["serial"]);
+    KalmanTracker tracker(config["tracker"]);
 
     bool enable_gui = config["pipeline"]["enable_gui"].as<bool>(false);
     int frame_q_size = config["pipeline"]["frame_queue_size"].as<int>(2);
@@ -82,35 +82,59 @@ int main() {
     camera.init();
     camera.start();
 
-    serial.start([&](const std::vector<uint8_t>&) {});
+    serial.start([&](const std::vector<uint8_t>& data) {
+        if (data.size() >= 3 && data[0] == 0xA5 && data[2] == 0x5A) {
+            switch (data[1]) {
+                case 0x01: tracker.setMode(TrackerMode::OUTPOST); break;
+                case 0x02: tracker.setMode(TrackerMode::BASE_STATIONARY); break;
+                case 0x03: tracker.setMode(TrackerMode::BASE_MOVING); break;
+            }
+        }
+    });
 
     std::thread cam_thread(camera_thread_fn, std::ref(camera), std::ref(frame_q));
-    std::thread det_thread(detect_thread_fn, std::ref(detect), std::ref(frame_q), std::ref(result_q));
+    std::thread det_thread(detect_thread_fn, std::ref(detect),
+                           std::ref(frame_q), std::ref(result_q));
+
+    auto last_ts = std::chrono::steady_clock::now();
 
     while (app_running) {
         ResultPacket res;
         if (!result_q.pop(res, 10)) {
-            SendDartCmdData send;
-            send.diff_center_norm = 0;
-            send.sum = 0;
-            for (uint8_t i = 0; i < 4; ++i)
-                send.sum += reinterpret_cast<uint8_t*>(&send)[i];
-            serial.write(to_vector(send));
+            auto now = std::chrono::steady_clock::now();
+            float dt = std::chrono::duration<float>(now - last_ts).count();
+            last_ts = now;
+
+            tracker.update({}, dt, 0);
+
+            GreenLight best;
+            if (tracker.bestTrack(best)) {
+                float cx_norm = best.center.x / 640.0f * 2.0f - 1.0f;
+                SendDartCmdData send;
+                send.diff_center_norm = cx_norm;
+                send.sum = 0;
+                for (uint8_t i = 0; i < 4; ++i)
+                    send.sum += reinterpret_cast<uint8_t*>(&send)[i];
+                serial.write(to_vector(send));
+            } else {
+                SendDartCmdData send{};
+                serial.write(to_vector(send));
+            }
             cv::waitKey(1);
             continue;
         }
 
-        GreenLight best;
-        float max_score = -1;
-        for (const auto& light : res.lights) {
-            if (light.score > max_score) {
-                max_score = light.score;
-                best = light;
-            }
-        }
+        auto now = res.timestamp;
+        float dt = std::chrono::duration<float>(now - last_ts).count();
+        last_ts = now;
+        if (dt <= 0.0f || dt > 1.0f) dt = 0.005f; // clamp
 
-        if (max_score > -1) {
-            auto cx_norm = best.center.x / res.annotated_frame.size().width * 2.0 - 1.0;
+        int w = res.annotated_frame.size().width;
+        tracker.update(res.lights, dt, w);
+
+        GreenLight best;
+        if (tracker.bestTrack(best)) {
+            float cx_norm = best.center.x / static_cast<float>(w) * 2.0f - 1.0f;
             SendDartCmdData send;
             send.diff_center_norm = cx_norm;
             send.sum = 0;
@@ -118,12 +142,9 @@ int main() {
                 send.sum += reinterpret_cast<uint8_t*>(&send)[i];
             serial.write(to_vector(send));
             cv::rectangle(res.annotated_frame, best.bbox, cv::Scalar(0, 0, 255), 2);
+            cv::circle(res.annotated_frame, best.center, 4, cv::Scalar(0, 255, 255), -1);
         } else {
-            SendDartCmdData send;
-            send.diff_center_norm = 0;
-            send.sum = 0;
-            for (uint8_t i = 0; i < 4; ++i)
-                send.sum += reinterpret_cast<uint8_t*>(&send)[i];
+            SendDartCmdData send{};
             serial.write(to_vector(send));
         }
 
@@ -135,13 +156,10 @@ int main() {
 
     frame_q.stop();
     result_q.stop();
-
     cam_thread.join();
     det_thread.join();
-
     serial.stop();
     camera.stop();
     cv::destroyAllWindows();
-
     return 0;
 }

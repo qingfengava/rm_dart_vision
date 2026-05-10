@@ -16,23 +16,30 @@ find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(HikSDK REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(Ceres REQUIRED)
 
 include_directories(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/3rdparty/Hungarian
+    ${PROJECT_SOURCE_DIR}/3rdparty/KalmanHyLib
 )
 
-file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS src/*.cpp)
+set(SOURCES
+    src/main.cpp
+    3rdparty/Hungarian/Hungarian.cpp
+)
 
 # 编译库
 add_library(${PROJECT_NAME} ${SOURCES})
 target_link_libraries(${PROJECT_NAME}
     ${OpenCV_LIBS}
-    ${Boost_LIBRARIES}   # 必须使用这个
+    ${Boost_LIBRARIES}
     pthread
     Eigen3::Eigen
     HikSDK::HikSDK
     yaml-cpp
+    ceres
 )
 
 # 编译可执行文件

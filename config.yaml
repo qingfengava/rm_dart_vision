@@ -23,3 +23,27 @@ pipeline:
   frame_queue_size: 2        # 相机→检测 队列深度
   result_queue_size: 1       # 检测→控制 队列深度
 
+tracker:
+  initial_mode: "base_stationary"  # outpost / base_stationary / base_moving
+
+  stationary:                      # 静止模式参数 (前哨站 & 基地静止共用)
+    q_v: 0.5
+    q_size: 1.0
+    r_pos: 4.0
+    r_size: 9.0
+    max_lost_frames: 20
+
+  moving:                          # 运动模式参数 (基地移动)
+    q_v: 200.0
+    q_size: 20.0
+    r_pos: 4.0
+    r_size: 9.0
+    max_lost_frames: 5
+
+  v_max: 200.0                     # 初始速度不确定性 (px/s)
+  gate_threshold: 9.49             # 马氏距离门控 χ²(4, 0.95)
+  confirm_frames: 3                # 新 track 确认所需连续帧数
+  max_tentative_frames: 5          # 未确认 track 最大存活帧数
+  transition_alpha: 0.3            # Q 平滑过渡因子
+  iteration_num: 2                 # EKF GN 迭代次数
+
