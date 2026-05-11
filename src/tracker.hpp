@@ -65,7 +65,7 @@ public:
         v_max_ = config["v_max"].as<double>(200.0);
         iteration_num_ = config["iteration_num"].as<int>(2);
 
-        std::string mode_str = config["initial_mode"].as<std::string>("base_stationary");
+        std::string mode_str = config["initial_mode"].as<std::string>("stationary");
         target_mode_ = modeFromString(mode_str);
         current_mode_ = target_mode_;
 
@@ -124,7 +124,7 @@ public:
 
 private:
     const ModeParams& paramsFor(TrackerMode m) const {
-        return (m == TrackerMode::BASE_MOVING) ? moving_ : stationary_;
+        return (m == TrackerMode::MOVING) ? moving_ : stationary_;
     }
 
     void smoothParams() {
@@ -275,7 +275,7 @@ private:
                     continue;
                 }
             } else if (it->state == Track::CONFIRMED) {
-                int max_lost = (target_mode_ == TrackerMode::BASE_MOVING)
+                int max_lost = (target_mode_ == TrackerMode::MOVING)
                                    ? moving_.max_lost_frames
                                    : stationary_.max_lost_frames;
                 if (it->misses > max_lost) {
@@ -285,7 +285,7 @@ private:
                     it->state = Track::LOST;
                 }
             } else { // LOST
-                int max_lost = (target_mode_ == TrackerMode::BASE_MOVING)
+                int max_lost = (target_mode_ == TrackerMode::MOVING)
                                    ? moving_.max_lost_frames
                                    : stationary_.max_lost_frames;
                 if (it->hits > 0)
@@ -319,8 +319,8 @@ private:
     }();
 
     ModeParams stationary_, moving_;
-    TrackerMode current_mode_ = TrackerMode::BASE_STATIONARY;
-    TrackerMode target_mode_ = TrackerMode::BASE_STATIONARY;
+    TrackerMode current_mode_ = TrackerMode::STATIONARY;
+    TrackerMode target_mode_ = TrackerMode::STATIONARY;
 
     float current_q_v_ = 0.5f;
     float current_q_size_ = 1.0f;

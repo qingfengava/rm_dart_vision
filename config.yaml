@@ -17,6 +17,10 @@ detect:
     min_area: 10
     max_area: 50000000
     one_one_diff: 0.4
+  roi:
+    enable: false           # 是否启用 ROI 区域限制
+    x_ratio: [0.0, 1.0]     # 横向范围 (图像宽度比例)
+    y_ratio: [0.0, 1.0]     # 纵向范围 (图像高度比例)
 
 pipeline:
   enable_gui: true           # 是否显示主 frame 窗口，比赛时关闭
@@ -24,7 +28,7 @@ pipeline:
   result_queue_size: 1       # 检测→控制 队列深度
 
 tracker:
-  initial_mode: "base_stationary"  # outpost / base_stationary / base_moving
+  initial_mode: "stationary"       # stationary / moving
 
   stationary:                      # 静止模式参数 (前哨站 & 基地静止共用)
     q_v: 0.5

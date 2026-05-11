@@ -85,9 +85,8 @@ int main() {
     serial.start([&](const std::vector<uint8_t>& data) {
         if (data.size() >= 3 && data[0] == 0xA5 && data[2] == 0x5A) {
             switch (data[1]) {
-                case 0x01: tracker.setMode(TrackerMode::OUTPOST); break;
-                case 0x02: tracker.setMode(TrackerMode::BASE_STATIONARY); break;
-                case 0x03: tracker.setMode(TrackerMode::BASE_MOVING); break;
+                case 0x01: tracker.setMode(TrackerMode::STATIONARY); break;
+                case 0x02: tracker.setMode(TrackerMode::MOVING); break;
             }
         }
     });

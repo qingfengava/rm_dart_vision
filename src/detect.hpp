@@ -151,12 +151,22 @@ inline void neon_diff_threshold_bgr(const cv::Mat& src, cv::Mat& dst, uint8_t D_
 class Detect {
 public:
     Detect(const YAML::Node& config) {
-        // D_threshold_ = config["D_threshold"].as<int>();
         max_area_ = config["contours"]["max_area"].as<double>();
         min_area_ = config["contours"]["min_area"].as<double>();
         one_one_diff_ = config["contours"]["one_one_diff"].as<double>();
         if (config["enable_gui"])
             enable_gui_ = config["enable_gui"].as<bool>();
+        if (config["roi"]) {
+            enable_roi_ = config["roi"]["enable"].as<bool>(false);
+            if (enable_roi_) {
+                auto& xr = config["roi"]["x_ratio"];
+                auto& yr = config["roi"]["y_ratio"];
+                roi_x1_ = xr[0].as<float>();
+                roi_x2_ = xr[1].as<float>();
+                roi_y1_ = yr[0].as<float>();
+                roi_y2_ = yr[1].as<float>();
+            }
+        }
         if (enable_gui_)
             initGUI();
     }
@@ -188,7 +198,26 @@ public:
 
         cv::inRange(hsv, lower_green, upper_green, mask);
 
+        if (enable_roi_)
+            applyROI(mask, frame.size());
+
         return mask;
+    }
+
+    void applyROI(cv::Mat& mask, const cv::Size& size) {
+        if (roi_mask_.size() == size) {
+            cv::bitwise_and(mask, roi_mask_, mask);
+            return;
+        }
+        roi_mask_ = cv::Mat::zeros(size, CV_8UC1);
+        cv::Rect roi(
+            static_cast<int>(roi_x1_ * size.width),
+            static_cast<int>(roi_y1_ * size.height),
+            static_cast<int>((roi_x2_ - roi_x1_) * size.width),
+            static_cast<int>((roi_y2_ - roi_y1_) * size.height)
+        );
+        cv::rectangle(roi_mask_, roi, cv::Scalar(255), cv::FILLED);
+        cv::bitwise_and(mask, roi_mask_, mask);
     }
     std::vector<GreenLight> detect(cv::Mat& frame) {
         std::vector<GreenLight> lights;
@@ -240,5 +269,9 @@ public:
     double max_area_ = 10000;
     double one_one_diff_;
     bool enable_gui_ = true;
+    bool enable_roi_ = false;
+    float roi_x1_ = 0.0f, roi_x2_ = 1.0f;
+    float roi_y1_ = 0.0f, roi_y2_ = 1.0f;
+    cv::Mat roi_mask_;
 };
 } // namespace dart_vision

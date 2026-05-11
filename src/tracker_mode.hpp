@@ -4,7 +4,7 @@
 
 namespace dart_vision {
 
-enum class TrackerMode { OUTPOST, BASE_STATIONARY, BASE_MOVING };
+enum class TrackerMode { STATIONARY, MOVING };
 
 struct ModeParams {
     float q_v;
@@ -23,9 +23,8 @@ struct ModeParams {
 };
 
 TrackerMode modeFromString(const std::string& s) {
-    if (s == "outpost") return TrackerMode::OUTPOST;
-    if (s == "base_moving") return TrackerMode::BASE_MOVING;
-    return TrackerMode::BASE_STATIONARY;
+    if (s == "moving") return TrackerMode::MOVING;
+    return TrackerMode::STATIONARY;
 }
 
 } // namespace dart_vision
