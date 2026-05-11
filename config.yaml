@@ -54,3 +54,7 @@ tracker:
   transition_alpha: 0.3            # Q 平滑过渡因子
   iteration_num: 2                 # EKF GN 迭代次数
 
+  auto_reset:
+    enable: false                  # 是否启用自动跳变检测 (随机固定目标建议 true)
+    jump_distance_px: 50           # 判定跳变的最短像素距离
+

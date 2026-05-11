@@ -268,13 +268,13 @@ public:
             cv::circle(frame, center, 3, cv::Scalar(0, 255, 0), -1);
         }
 
-        if (enable_gui_) {
-            cv::imshow("mask", mask);
-            cv::waitKey(1);
-        }
+        if (enable_gui_)
+            last_mask_ = mask.clone();
 
         return lights;
     }
+
+    const cv::Mat& getMask() const { return last_mask_; }
 
     void printHSV() const {
         std::cout << "\n=== HSV (复制到 config.yaml 的 detect.hsv 节) ===\n"
@@ -305,5 +305,6 @@ public:
     cv::Mat roi_mask_;
     cv::Scalar hsv_cfg_low_ = cv::Scalar(35, 50, 80);
     cv::Scalar hsv_cfg_high_ = cv::Scalar(85, 255, 255);
+    cv::Mat last_mask_;
 };
 } // namespace dart_vision

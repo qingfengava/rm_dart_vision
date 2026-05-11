@@ -69,6 +69,11 @@ public:
         target_mode_ = modeFromString(mode_str);
         current_mode_ = target_mode_;
 
+        if (config["auto_reset"]) {
+            enable_auto_reset_ = config["auto_reset"]["enable"].as<bool>(false);
+            jump_distance_px_ = config["auto_reset"]["jump_distance_px"].as<double>(50.0);
+        }
+
         const auto& p = paramsFor(current_mode_);
         current_q_v_ = p.q_v;
         current_q_size_ = p.q_size;
@@ -264,6 +269,8 @@ private:
     }
 
     void manageLifecycle() {
+        cv::Point2f lost_pos(-1, -1);
+
         auto it = tracks_.begin();
         while (it != tracks_.end()) {
             // State transitions
@@ -282,6 +289,7 @@ private:
                     it = tracks_.erase(it);
                     continue;
                 } else if (it->misses > 0) {
+                    lost_pos = cv::Point2f(it->x_pred[0], it->x_pred[1]);
                     it->state = Track::LOST;
                 }
             } else { // LOST
@@ -296,6 +304,20 @@ private:
                 }
             }
             ++it;
+        }
+
+        if (enable_auto_reset_ && lost_pos.x >= 0) {
+            for (auto& t : tracks_) {
+                if (t.state != Track::TENTATIVE) continue;
+                float dx = t.x_pred[0] - lost_pos.x;
+                float dy = t.x_pred[1] - lost_pos.y;
+                if (dx * dx + dy * dy > jump_distance_px_ * jump_distance_px_) {
+                    tracks_.clear();
+                    next_id_ = 0;
+                    std::cout << "[Tracker] 目标跳变, 自动重置" << std::endl;
+                    return;
+                }
+            }
         }
     }
 
@@ -335,6 +357,8 @@ private:
     double transition_alpha_ = 0.3;
     double v_max_ = 200.0;
     int next_id_ = 0;
+    bool enable_auto_reset_ = false;
+    double jump_distance_px_ = 50.0;
 
     std::vector<Track> tracks_;
 };

@@ -26,6 +26,7 @@ struct FramePacket {
 struct ResultPacket {
     std::vector<GreenLight> lights;
     cv::Mat annotated_frame;
+    cv::Mat mask;
     std::chrono::steady_clock::time_point timestamp;
 };
 
@@ -59,6 +60,7 @@ void detect_thread_fn(Detect& detect,
         ResultPacket res;
         res.lights = std::move(lights);
         res.annotated_frame = pkt.frame;
+        res.mask = detect.getMask();
         res.timestamp = pkt.timestamp;
         result_q.push(std::move(res));
     }
@@ -153,6 +155,7 @@ int main() {
         }
 
         if (enable_gui) {
+            if (!res.mask.empty()) cv::imshow("mask", res.mask);
             cv::imshow("frame", res.annotated_frame);
             handleKey(cv::waitKey(1) & 0xFF, detect);
         }
