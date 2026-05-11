@@ -11,7 +11,10 @@ serial:
 
 
 detect:
-  enable_gui: true          # 是否显示 HSV mask 调参窗口，比赛时关闭
+  enable_gui: true         # 是否显示 HSV mask 调参窗口，比赛时关闭
+  hsv:
+    low:  [26, 57, 179]      # [H, S, V] 下限 (H:0-179, S:0-255, V:0-255)
+    high: [88, 255, 255]    # [H, S, V] 上限
   D_threshold: 30
   contours:
     min_area: 10

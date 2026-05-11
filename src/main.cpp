@@ -33,6 +33,11 @@ std::atomic<bool> app_running{true};
 
 void signal_handler(int) { app_running = false; }
 
+void handleKey(int key, Detect& detect) {
+    if (key == 's') detect.printHSV();
+    else if (key == 'r') detect.resetHSV();
+}
+
 void camera_thread_fn(HikCamera& camera, ThreadSafeQueue<FramePacket>& frame_q) {
     while (app_running) {
         cv::Mat src = camera.read();
@@ -119,7 +124,7 @@ int main() {
                 SendDartCmdData send{};
                 serial.write(to_vector(send));
             }
-            cv::waitKey(1);
+            handleKey(cv::waitKey(1) & 0xFF, detect);
             continue;
         }
 
@@ -149,7 +154,7 @@ int main() {
 
         if (enable_gui) {
             cv::imshow("frame", res.annotated_frame);
-            cv::waitKey(1);
+            handleKey(cv::waitKey(1) & 0xFF, detect);
         }
     }
 

@@ -156,6 +156,16 @@ public:
         one_one_diff_ = config["contours"]["one_one_diff"].as<double>();
         if (config["enable_gui"])
             enable_gui_ = config["enable_gui"].as<bool>();
+        if (config["hsv"]) {
+            lowH = config["hsv"]["low"][0].as<int>();
+            lowS = config["hsv"]["low"][1].as<int>();
+            lowV = config["hsv"]["low"][2].as<int>();
+            highH = config["hsv"]["high"][0].as<int>();
+            highS = config["hsv"]["high"][1].as<int>();
+            highV = config["hsv"]["high"][2].as<int>();
+            hsv_cfg_low_ = cv::Scalar(lowH, lowS, lowV);
+            hsv_cfg_high_ = cv::Scalar(highH, highS, highV);
+        }
         if (config["roi"]) {
             enable_roi_ = config["roi"]["enable"].as<bool>(false);
             if (enable_roi_) {
@@ -265,6 +275,26 @@ public:
 
         return lights;
     }
+
+    void printHSV() const {
+        std::cout << "\n=== HSV (复制到 config.yaml 的 detect.hsv 节) ===\n"
+                  << "  hsv:\n"
+                  << "    low:  [" << lowH << ", " << lowS << ", " << lowV << "]\n"
+                  << "    high: [" << highH << ", " << highS << ", " << highV << "]\n"
+                  << "=============================================" << std::endl;
+    }
+
+    void resetHSV() {
+        lowH = hsv_cfg_low_[0]; lowS = hsv_cfg_low_[1]; lowV = hsv_cfg_low_[2];
+        highH = hsv_cfg_high_[0]; highS = hsv_cfg_high_[1]; highV = hsv_cfg_high_[2];
+        cv::setTrackbarPos("LowH", "mask", lowH);
+        cv::setTrackbarPos("HighH", "mask", highH);
+        cv::setTrackbarPos("LowS", "mask", lowS);
+        cv::setTrackbarPos("HighS", "mask", highS);
+        cv::setTrackbarPos("LowV", "mask", lowV);
+        cv::setTrackbarPos("HighV", "mask", highV);
+        std::cout << "[HSV] 已重置为 config 默认值" << std::endl;
+    }
     double min_area_ = 100;
     double max_area_ = 10000;
     double one_one_diff_;
@@ -273,5 +303,7 @@ public:
     float roi_x1_ = 0.0f, roi_x2_ = 1.0f;
     float roi_y1_ = 0.0f, roi_y2_ = 1.0f;
     cv::Mat roi_mask_;
+    cv::Scalar hsv_cfg_low_ = cv::Scalar(35, 50, 80);
+    cv::Scalar hsv_cfg_high_ = cv::Scalar(85, 255, 255);
 };
 } // namespace dart_vision
