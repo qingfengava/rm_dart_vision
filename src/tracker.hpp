@@ -5,6 +5,7 @@
 #include "type.hpp"
 #include <Eigen/Dense>
 #include <cmath>
+#include <deque>
 #include <memory>
 #include <vector>
 
@@ -42,6 +43,16 @@ using MatrixZZ = EKF::MatrixZZ;
 using MatrixX1 = EKF::MatrixX1;
 using MatrixZ1 = EKF::MatrixZ1;
 
+struct TrackInfo {
+    bool valid = false;
+    int id = 0;
+    int hits = 0;
+    int age = 0;
+    int state = 0; // 0=TENTATIVE, 1=CONFIRMED, 2=LOST
+    cv::Point2f center;
+    std::deque<cv::Point2f> history;
+};
+
 struct Track {
     int id = 0;
     enum State { TENTATIVE, CONFIRMED, LOST } state = TENTATIVE;
@@ -50,6 +61,7 @@ struct Track {
     int age = 0;
     std::unique_ptr<EKF> ekf;
     MatrixX1 x_pred = MatrixX1::Zero();
+    std::deque<cv::Point2f> history;
 };
 
 class KalmanTracker {
@@ -123,6 +135,46 @@ public:
         );
         out.score = best_score;
         return true;
+    }
+
+    bool pickLowest(GreenLight& out) const {
+        const Track* lowest = nullptr;
+        float max_y = -1;
+        for (const auto& t : tracks_) {
+            if (t.state != Track::CONFIRMED) continue;
+            if (t.x_pred[1] > max_y) { max_y = t.x_pred[1]; lowest = &t; }
+        }
+        if (!lowest) return false;
+        const MatrixX1& x = lowest->x_pred;
+        out.center = cv::Point2f(static_cast<float>(x[0]), static_cast<float>(x[1]));
+        out.bbox = cv::Rect2f(
+            static_cast<float>(x[0] - x[4] * 0.5f),
+            static_cast<float>(x[1] - x[5] * 0.5f),
+            static_cast<float>(x[4]),
+            static_cast<float>(x[5])
+        );
+        out.score = max_y;
+        return true;
+    }
+
+    TrackInfo bestTrackInfo() const {
+        TrackInfo info;
+        const Track* best = nullptr;
+        float best_score = -1.0f;
+        for (const auto& t : tracks_) {
+            if (t.state != Track::CONFIRMED) continue;
+            float score = static_cast<float>(t.hits) / static_cast<float>(t.age + 1);
+            if (score > best_score) { best_score = score; best = &t; }
+        }
+        if (!best) return info;
+        info.valid = true;
+        info.id = best->id;
+        info.hits = best->hits;
+        info.age = best->age;
+        info.state = 1; // CONFIRMED
+        info.center = cv::Point2f(best->x_pred[0], best->x_pred[1]);
+        info.history = best->history;
+        return info;
     }
 
     const std::vector<Track>& tracks() const { return tracks_; }
@@ -210,6 +262,8 @@ private:
                 tracks_[i].x_pred = tracks_[i].ekf->update(z);
                 tracks_[i].hits++;
                 tracks_[i].misses = 0;
+                tracks_[i].history.push_back(cv::Point2f(tracks_[i].x_pred[0], tracks_[i].x_pred[1]));
+                if (tracks_[i].history.size() > 50) tracks_[i].history.pop_front();
             } else {
                 tracks_[i].misses++;
                 tracks_[i].hits = 0;

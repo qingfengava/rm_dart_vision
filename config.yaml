@@ -20,7 +20,9 @@ detect:
     min_area: 10
     max_area: 50000000
     one_one_diff: 0.4
-  roi:
+  base_filter:
+    enable: true           # 关闭检测层过滤，交给 tracker 输出层选最低灯
+·  roi:
     enable: false           # 是否启用 ROI 区域限制
     x_ratio: [0.0, 1.0]     # 横向范围 (图像宽度比例)
     y_ratio: [0.0, 1.0]     # 纵向范围 (图像高度比例)
@@ -55,6 +57,6 @@ tracker:
   iteration_num: 2                 # EKF GN 迭代次数
 
   auto_reset:
-    enable: false                  # 是否启用自动跳变检测 (随机固定目标建议 true)
+    enable: true                  # 是否启用自动跳变检测 (随机固定目标建议 true)
     jump_distance_px: 50           # 判定跳变的最短像素距离
 

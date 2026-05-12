@@ -177,6 +177,11 @@ public:
                 roi_y2_ = yr[1].as<float>();
             }
         }
+        if (config["base_filter"]) {
+            enable_base_filter_ = config["base_filter"]["enable"].as<bool>(false);
+            base_max_area_ = config["base_filter"]["max_area"].as<double>(800.0);
+        }
+
         if (enable_gui_)
             initGUI();
     }
@@ -268,6 +273,17 @@ public:
             cv::circle(frame, center, 3, cv::Scalar(0, 255, 0), -1);
         }
 
+        if (enable_base_filter_ && !lights.empty()) {
+            std::sort(lights.begin(), lights.end(),
+                [](const GreenLight& a, const GreenLight& b) {
+                    return a.center.y > b.center.y;
+                });
+            if (lights[0].score > base_max_area_)
+                lights.clear();
+            else
+                lights.resize(1);
+        }
+
         if (enable_gui_)
             last_mask_ = mask.clone();
 
@@ -275,6 +291,16 @@ public:
     }
 
     const cv::Mat& getMask() const { return last_mask_; }
+
+    cv::Rect getROIRect(const cv::Size& size) const {
+        return cv::Rect(
+            static_cast<int>(roi_x1_ * size.width),
+            static_cast<int>(roi_y1_ * size.height),
+            static_cast<int>((roi_x2_ - roi_x1_) * size.width),
+            static_cast<int>((roi_y2_ - roi_y1_) * size.height)
+        );
+    }
+    bool roiEnabled() const { return enable_roi_; }
 
     void printHSV() const {
         std::cout << "\n=== HSV (复制到 config.yaml 的 detect.hsv 节) ===\n"
@@ -300,6 +326,8 @@ public:
     double one_one_diff_;
     bool enable_gui_ = true;
     bool enable_roi_ = false;
+    bool enable_base_filter_ = false;
+    double base_max_area_ = 800.0;
     float roi_x1_ = 0.0f, roi_x2_ = 1.0f;
     float roi_y1_ = 0.0f, roi_y2_ = 1.0f;
     cv::Mat roi_mask_;

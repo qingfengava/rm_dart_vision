@@ -39,6 +39,34 @@ void handleKey(int key, Detect& detect) {
     else if (key == 'r') detect.resetHSV();
 }
 
+void drawStatus(cv::Mat& img, const TrackerMode mode, const TrackInfo& info,
+                float cx_norm, float cy_norm, float fps) {
+    int y = 20;
+    auto put = [&](const std::string& txt, cv::Scalar color = cv::Scalar(0, 255, 0)) {
+        cv::putText(img, txt, cv::Point(8, y), cv::FONT_HERSHEY_SIMPLEX,
+                    0.45, cv::Scalar(0, 0, 0), 2);
+        cv::putText(img, txt, cv::Point(8, y), cv::FONT_HERSHEY_SIMPLEX,
+                    0.45, color, 1);
+        y += 18;
+    };
+
+    put("Mode: " + std::string(mode == TrackerMode::STATIONARY ? "STATIONARY" : "MOVING"));
+
+    if (info.valid) {
+        put("Track: CONFIRMED  id=" + std::to_string(info.id));
+        put("Hits: " + std::to_string(info.hits) + "  Age: " + std::to_string(info.age));
+        char buf[64];
+        snprintf(buf, sizeof(buf), "cx: %+.4f  cy: %+.4f", cx_norm, cy_norm);
+        put(buf, cv::Scalar(0, 255, 255));
+    } else {
+        put("Track: NONE", cv::Scalar(0, 0, 255));
+    }
+
+    char fps_buf[32];
+    snprintf(fps_buf, sizeof(fps_buf), "FPS: %.0f", fps);
+    put(fps_buf);
+}
+
 void camera_thread_fn(HikCamera& camera, ThreadSafeQueue<FramePacket>& frame_q) {
     while (app_running) {
         cv::Mat src = camera.read();
@@ -84,7 +112,6 @@ int main() {
     ThreadSafeQueue<ResultPacket> result_q(result_q_size);
 
     cv::namedWindow("frame", cv::WINDOW_NORMAL);
-    cv::resizeWindow("frame", 640, 480);
 
     camera.init();
     camera.start();
@@ -103,6 +130,10 @@ int main() {
                            std::ref(frame_q), std::ref(result_q));
 
     auto last_ts = std::chrono::steady_clock::now();
+    int last_w = 640;
+    int frame_count = 0;
+    float fps = 0;
+    auto fps_timer = std::chrono::steady_clock::now();
 
     while (app_running) {
         ResultPacket res;
@@ -114,8 +145,8 @@ int main() {
             tracker.update({}, dt, 0);
 
             GreenLight best;
-            if (tracker.bestTrack(best)) {
-                float cx_norm = best.center.x / 640.0f * 2.0f - 1.0f;
+            if (tracker.pickLowest(best)) {
+                float cx_norm = best.center.x / static_cast<float>(last_w) * 2.0f - 1.0f;
                 SendDartCmdData send;
                 send.diff_center_norm = cx_norm;
                 send.sum = 0;
@@ -130,17 +161,32 @@ int main() {
             continue;
         }
 
+        // FPS
+        frame_count++;
+        auto now2 = std::chrono::steady_clock::now();
+        float elapsed = std::chrono::duration<float>(now2 - fps_timer).count();
+        if (elapsed >= 2.0f) {
+            fps = frame_count / elapsed;
+            frame_count = 0;
+            fps_timer = now2;
+        }
+
         auto now = res.timestamp;
         float dt = std::chrono::duration<float>(now - last_ts).count();
         last_ts = now;
-        if (dt <= 0.0f || dt > 1.0f) dt = 0.005f; // clamp
+        if (dt <= 0.0f || dt > 1.0f) dt = 0.005f;
 
         int w = res.annotated_frame.size().width;
+        int h = res.annotated_frame.size().height;
+        last_w = w;
         tracker.update(res.lights, dt, w);
 
         GreenLight best;
-        if (tracker.bestTrack(best)) {
-            float cx_norm = best.center.x / static_cast<float>(w) * 2.0f - 1.0f;
+        float cx_norm = 0, cy_norm = 0;
+        bool tracking = tracker.pickLowest(best);
+        if (tracking) {
+            cx_norm = best.center.x / static_cast<float>(w) * 2.0f - 1.0f;
+            cy_norm = best.center.y / static_cast<float>(h) * 2.0f - 1.0f;
             SendDartCmdData send;
             send.diff_center_norm = cx_norm;
             send.sum = 0;
@@ -155,6 +201,24 @@ int main() {
         }
 
         if (enable_gui) {
+            // ROI boundary
+            if (detect.roiEnabled())
+                cv::rectangle(res.annotated_frame, detect.getROIRect(res.annotated_frame.size()),
+                              cv::Scalar(0, 255, 0), 1);
+
+            // Track trajectory
+            auto info = tracker.bestTrackInfo();
+            if (info.valid && info.history.size() > 1) {
+                std::vector<cv::Point> pts(info.history.begin(), info.history.end());
+                for (size_t i = 1; i < pts.size(); ++i) {
+                    float alpha = static_cast<float>(i) / pts.size();
+                    cv::line(res.annotated_frame, pts[i - 1], pts[i],
+                             cv::Scalar(0, 255 * alpha, 255 * (1 - alpha)), 1);
+                }
+            }
+
+            drawStatus(res.annotated_frame, tracker.mode(), info, cx_norm, cy_norm, fps);
+
             if (!res.mask.empty()) cv::imshow("mask", res.mask);
             cv::imshow("frame", res.annotated_frame);
             handleKey(cv::waitKey(1) & 0xFF, detect);
