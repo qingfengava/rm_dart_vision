@@ -33,16 +33,16 @@ pipeline:
   result_queue_size: 1       # 检测→控制 队列深度
 
 tracker:
-  initial_mode: "stationary"       # stationary / moving
+  target_mode: "fixed"             # fixed / random_fixed / random_moving
 
-  stationary:                      # 静止模式参数 (前哨站 & 基地静止共用)
+  stationary:                      # 静止模式参数
     q_v: 0.5
     q_size: 1.0
     r_pos: 4.0
     r_size: 9.0
     max_lost_frames: 20
 
-  moving:                          # 运动模式参数 (基地移动)
+  moving:                          # 运动模式参数
     q_v: 200.0
     q_size: 20.0
     r_pos: 4.0
@@ -57,6 +57,11 @@ tracker:
   iteration_num: 2                 # EKF GN 迭代次数
 
   auto_reset:
-    enable: true                  # 是否启用自动跳变检测 (随机固定目标建议 true)
     jump_distance_px: 50           # 判定跳变的最短像素距离
+    fast_confirm_frames: 1         # reset 后快速确认帧数
+    fast_confirm_duration: 10      # 快速确认持续帧数 (200fps=50ms)
+
+  auto_maneuver:
+    stationarity_window: 20        # 静止检测滑窗帧数 (200fps=100ms)
+    stationarity_threshold: 3.0    # 位置标准差阈值 (px)
 

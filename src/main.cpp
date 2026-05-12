@@ -121,6 +121,9 @@ int main() {
             switch (data[1]) {
                 case 0x01: tracker.setMode(TrackerMode::STATIONARY); break;
                 case 0x02: tracker.setMode(TrackerMode::MOVING); break;
+                case 0x21: tracker.setTargetMode("fixed"); break;
+                case 0x22: tracker.setTargetMode("random_fixed"); break;
+                case 0x23: tracker.setTargetMode("random_moving"); break;
             }
         }
     });

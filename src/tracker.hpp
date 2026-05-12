@@ -82,10 +82,13 @@ public:
         current_mode_ = target_mode_;
 
         if (config["auto_reset"]) {
-            enable_auto_reset_ = config["auto_reset"]["enable"].as<bool>(false);
             jump_distance_px_ = config["auto_reset"]["jump_distance_px"].as<double>(50.0);
+            fast_confirm_frames_ = config["auto_reset"]["fast_confirm_frames"].as<int>(1);
+            fast_confirm_duration_ = config["auto_reset"]["fast_confirm_duration"].as<int>(10);
         }
 
+        // target_mode preset from config
+        applyPreset(config["target_mode"].as<std::string>("fixed"));
         const auto& p = paramsFor(current_mode_);
         current_q_v_ = p.q_v;
         current_q_size_ = p.q_size;
@@ -93,7 +96,17 @@ public:
         current_r_size_ = p.r_size;
     }
 
-    void setMode(TrackerMode mode) { target_mode_ = mode; }
+    void setMode(TrackerMode mode) {
+        if (!enable_auto_maneuver_) target_mode_ = mode;
+    }
+
+    void setTargetMode(const std::string& preset) {
+        applyPreset(preset);
+        tracks_.clear();
+        next_id_ = 0;
+        frames_since_reset_ = -1;
+        std::cout << "[Tracker] 模式切换: " << preset << std::endl;
+    }
 
     TrackerMode mode() const { return target_mode_; }
 
@@ -109,6 +122,9 @@ public:
             for (auto& t : tracks_)
                 t.misses++;
         }
+
+        if (frames_since_reset_ >= 0)
+            frames_since_reset_++;
 
         manageLifecycle();
     }
@@ -180,6 +196,21 @@ public:
     const std::vector<Track>& tracks() const { return tracks_; }
 
 private:
+    void applyPreset(const std::string& preset) {
+        enable_auto_reset_ = false;
+        enable_auto_maneuver_ = false;
+        initial_mode_ = TrackerMode::STATIONARY;
+        if (preset == "random_fixed") {
+            enable_auto_reset_ = true;
+        } else if (preset == "random_moving") {
+            enable_auto_reset_ = true;
+            enable_auto_maneuver_ = true;
+            initial_mode_ = TrackerMode::MOVING;
+        }
+        target_mode_ = initial_mode_;
+        current_mode_ = initial_mode_;
+    }
+
     const ModeParams& paramsFor(TrackerMode m) const {
         return (m == TrackerMode::MOVING) ? moving_ : stationary_;
     }
@@ -329,7 +360,10 @@ private:
         while (it != tracks_.end()) {
             // State transitions
             if (it->state == Track::TENTATIVE) {
-                if (it->hits >= confirm_frames_)
+                int cf = (enable_auto_reset_ && frames_since_reset_ >= 0 &&
+                          frames_since_reset_ < fast_confirm_duration_)
+                             ? fast_confirm_frames_ : confirm_frames_;
+                if (it->hits >= cf)
                     it->state = Track::CONFIRMED;
                 else if (it->age > max_tentative_frames_ || it->misses > 0) {
                     it = tracks_.erase(it);
@@ -368,9 +402,40 @@ private:
                 if (dx * dx + dy * dy > jump_distance_px_ * jump_distance_px_) {
                     tracks_.clear();
                     next_id_ = 0;
-                    std::cout << "[Tracker] 目标跳变, 自动重置" << std::endl;
+                    frames_since_reset_ = 0;
+                    target_mode_ = TrackerMode::STATIONARY;
+                    std::cout << "[Tracker] 目标跳变, 自动重置 (快速确认 "
+                              << fast_confirm_frames_ << "帧, 持续"
+                              << fast_confirm_duration_ << "帧)" << std::endl;
                     return;
                 }
+            }
+        }
+
+        if (enable_auto_maneuver_) {
+            const Track* best = nullptr;
+            float best_score = -1.0f;
+            for (const auto& t : tracks_) {
+                if (t.state != Track::CONFIRMED) continue;
+                float s = static_cast<float>(t.hits) / static_cast<float>(t.age + 1);
+                if (s > best_score) { best_score = s; best = &t; }
+            }
+            if (best && best->history.size() >= static_cast<size_t>(stationarity_window_)) {
+                float sum_x = 0, sum_y = 0, sum_x2 = 0, sum_y2 = 0;
+                size_t n = std::min(best->history.size(), static_cast<size_t>(stationarity_window_));
+                auto it = best->history.end();
+                for (size_t i = 0; i < n; ++i) {
+                    --it;
+                    sum_x += it->x; sum_y += it->y;
+                    sum_x2 += it->x * it->x; sum_y2 += it->y * it->y;
+                }
+                float var_x = sum_x2 / n - (sum_x / n) * (sum_x / n);
+                float var_y = sum_y2 / n - (sum_y / n) * (sum_y / n);
+                float std = std::sqrt(std::max(0.0f, var_x + var_y));
+                if (std < stationarity_threshold_)
+                    target_mode_ = TrackerMode::STATIONARY;
+                else
+                    target_mode_ = TrackerMode::MOVING;
             }
         }
     }
@@ -397,6 +462,7 @@ private:
     ModeParams stationary_, moving_;
     TrackerMode current_mode_ = TrackerMode::STATIONARY;
     TrackerMode target_mode_ = TrackerMode::STATIONARY;
+    TrackerMode initial_mode_ = TrackerMode::STATIONARY;
 
     float current_q_v_ = 0.5f;
     float current_q_size_ = 1.0f;
@@ -413,6 +479,12 @@ private:
     int next_id_ = 0;
     bool enable_auto_reset_ = false;
     double jump_distance_px_ = 50.0;
+    int fast_confirm_frames_ = 1;
+    int fast_confirm_duration_ = 10;
+    int frames_since_reset_ = -1;
+    bool enable_auto_maneuver_ = false;
+    int stationarity_window_ = 20;
+    double stationarity_threshold_ = 3.0;
 
     std::vector<Track> tracks_;
 };
