@@ -117,13 +117,11 @@ int main() {
     camera.start();
 
     serial.start([&](const std::vector<uint8_t>& data) {
-        if (data.size() >= 3 && data[0] == 0xA5 && data[2] == 0x5A) {
+        if (data.size() >= 2 && data[0] == 0xAA) {
             switch (data[1]) {
-                case 0x01: tracker.setMode(TrackerMode::STATIONARY); break;
-                case 0x02: tracker.setMode(TrackerMode::MOVING); break;
-                case 0x21: tracker.setTargetMode("fixed"); break;
-                case 0x22: tracker.setTargetMode("random_fixed"); break;
-                case 0x23: tracker.setTargetMode("random_moving"); break;
+                case 1: tracker.setTargetMode("fixed"); break;
+                case 2: tracker.setTargetMode("random_fixed"); break;
+                case 3: tracker.setTargetMode("random_moving"); break;
             }
         }
     });
