@@ -88,7 +88,8 @@ public:
         }
 
         // target_mode preset from config
-        applyPreset(config["target_mode"].as<std::string>("fixed"));
+        last_preset_ = config["target_mode"].as<std::string>("fixed");
+        applyPreset(last_preset_);
         const auto& p = paramsFor(current_mode_);
         current_q_v_ = p.q_v;
         current_q_size_ = p.q_size;
@@ -101,6 +102,8 @@ public:
     }
 
     void setTargetMode(const std::string& preset) {
+        if (last_preset_ == preset) return;
+        last_preset_ = preset;
         applyPreset(preset);
         tracks_.clear();
         next_id_ = 0;
@@ -485,6 +488,7 @@ private:
     bool enable_auto_maneuver_ = false;
     int stationarity_window_ = 20;
     double stationarity_threshold_ = 3.0;
+    std::string last_preset_ = "fixed";
 
     std::vector<Track> tracks_;
 };
