@@ -21,6 +21,7 @@ find_package(Ceres REQUIRED)
 include_directories(
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/utils
     ${PROJECT_SOURCE_DIR}/3rdparty/Hungarian
     ${PROJECT_SOURCE_DIR}/3rdparty/KalmanHyLib
 )

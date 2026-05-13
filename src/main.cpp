@@ -1,5 +1,6 @@
 #include "detect.hpp"
 #include "hik.hpp"
+#include "recorder.hpp"
 #include "serial_driver.hpp"
 #include "thread_safe_queue.hpp"
 #include "tracker.hpp"
@@ -103,6 +104,7 @@ int main() {
     HikCamera camera(config["hik"]);
     SerialDriver serial(config["serial"]);
     KalmanTracker tracker(config["tracker"]);
+    Recorder recorder(config["recorder"]);
 
     bool enable_gui = config["pipeline"]["enable_gui"].as<bool>(false);
     int frame_q_size = config["pipeline"]["frame_queue_size"].as<int>(2);
@@ -115,13 +117,16 @@ int main() {
 
     camera.init();
     camera.start();
+    recorder.init();
 
     serial.start([&](const std::vector<uint8_t>& data) {
         if (data.size() >= 2 && data[0] == 0xAA) {
             switch (data[1]) {
+                case 0: tracker.setTargetMode("fixed"); break;
                 case 1: tracker.setTargetMode("fixed"); break;
                 case 2: tracker.setTargetMode("random_fixed"); break;
                 case 3: tracker.setTargetMode("random_moving"); break;
+                case 4: tracker.setTargetMode("end_moving"); break;
             }
         }
     });
@@ -224,8 +229,12 @@ int main() {
             cv::imshow("frame", res.annotated_frame);
             handleKey(cv::waitKey(1) & 0xFF, detect);
         }
+
+        if (recorder.enabled())
+            recorder.push(res.annotated_frame);
     }
 
+    recorder.stop();
     frame_q.stop();
     result_q.stop();
     cam_thread.join();

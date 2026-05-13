@@ -202,7 +202,7 @@ private:
         initial_mode_ = TrackerMode::STATIONARY;
         if (preset == "random_fixed") {
             enable_auto_reset_ = true;
-        } else if (preset == "random_moving") {
+        } else if (preset == "random_moving" || preset == "end_moving") {
             enable_auto_reset_ = true;
             enable_auto_maneuver_ = true;
             initial_mode_ = TrackerMode::MOVING;

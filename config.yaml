@@ -65,3 +65,9 @@ tracker:
     stationarity_window: 20        # 静止检测滑窗帧数 (200fps=100ms)
     stationarity_threshold: 3.0    # 位置标准差阈值 (px)
 
+recorder:
+  enable: false               # 是否启用异步录制
+  path: "data"                # 输出目录, 文件名自动加时间戳
+  fps: 30                     # 录制帧率
+  codec: "MJPG"               # FourCC 编码
+
