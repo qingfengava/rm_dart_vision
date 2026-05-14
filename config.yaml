@@ -68,6 +68,8 @@ tracker:
 recorder:
   enable: false               # 是否启用异步录制
   path: "data"                # 输出目录, 文件名自动加时间戳
-  fps: 30                     # 录制帧率
+  fps: 30                     # 视频播放帧率
   codec: "MJPG"               # FourCC 编码
+  scale: 0.5                  # 录制分辨率缩放, 1.0=原画
+  record_fps: 30              # 实际录制帧率, 自动按 Pipeline 帧率跳帧
 

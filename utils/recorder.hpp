@@ -22,18 +22,33 @@ public:
         out_fps_ = config["fps"].as<int>(30);
         path_ = config["path"].as<std::string>("data");
         codec_ = config["codec"].as<std::string>("MJPG");
+        scale_ = config["scale"].as<float>(0.5f);
+        record_fps_ = config["record_fps"].as<int>(30);
+    }
+
+    void setPipelineFPS(float fps) {
+        record_every_ = std::max(1, static_cast<int>(fps / record_fps_ + 0.5f));
     }
 
     void init() {
         if (!enable_ || started_) return;
         started_ = true;
+        frame_count_ = 0;
         rec_q_ = std::make_unique<ThreadSafeQueue<cv::Mat>>(2);
         writer_thread_ = std::thread(&Recorder::writeLoop, this);
     }
 
     bool push(cv::Mat frame) {
         if (!started_ || !rec_q_ || !rec_q_->running()) return false;
-        rec_q_->push(frame.clone());
+        frame_count_++;
+        if (record_every_ > 1 && frame_count_ % record_every_ != 0) return false;
+        if (scale_ < 1.0f) {
+            cv::Mat small;
+            cv::resize(frame, small, cv::Size(), scale_, scale_);
+            rec_q_->push(small.clone());
+        } else {
+            rec_q_->push(frame.clone());
+        }
         return true;
     }
 
@@ -82,6 +97,10 @@ private:
     bool enable_ = false;
     bool started_ = false;
     int out_fps_ = 30;
+    int record_fps_ = 30;
+    int record_every_ = 1;
+    int frame_count_ = 0;
+    float scale_ = 0.5f;
     std::string path_ = "data";
     std::string codec_ = "MJPG";
 

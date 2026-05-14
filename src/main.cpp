@@ -175,6 +175,7 @@ int main() {
             fps = frame_count / elapsed;
             frame_count = 0;
             fps_timer = now2;
+            recorder.setPipelineFPS(fps);
         }
 
         auto now = res.timestamp;
