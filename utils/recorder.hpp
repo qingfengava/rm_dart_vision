@@ -22,7 +22,7 @@ public:
         enable_ = config["enable"].as<bool>(false);
         if (!enable_) return;
         out_fps_ = config["fps"].as<int>(30);
-        path_ = config["path"].as<std::string>("data");
+        path_ = config["path"].as<std::string>("data/video");
         codec_ = config["codec"].as<std::string>("MJPG");
         scale_ = config["scale"].as<float>(0.5f);
         record_fps_ = config["record_fps"].as<int>(30);

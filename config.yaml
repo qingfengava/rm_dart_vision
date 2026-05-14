@@ -66,8 +66,8 @@ tracker:
     stationarity_threshold: 3.0    # 位置标准差阈值 (px)
 
 recorder:
-  enable: false               # 是否启用异步录制
-  path: "data"                # 输出目录, 文件名自动加时间戳
+  enable: true               # 是否启用异步录制
+  path: "data/video"          # 输出目录, 文件名自动加时间戳
   fps: 30                     # 视频播放帧率
   codec: "MJPG"               # FourCC 编码
   scale: 0.5                  # 录制分辨率缩放, 1.0=原画

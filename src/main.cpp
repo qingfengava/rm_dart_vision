@@ -1,5 +1,6 @@
 #include "detect.hpp"
 #include "hik.hpp"
+#include "logger.hpp"
 #include "recorder.hpp"
 #include "serial_driver.hpp"
 #include "thread_safe_queue.hpp"
@@ -105,6 +106,21 @@ int main() {
     SerialDriver serial(config["serial"]);
     KalmanTracker tracker(config["tracker"]);
     Recorder recorder(config["recorder"]);
+    RunLogger runlog("data/log");
+
+    runlog.set("target_mode", config["tracker"]["target_mode"].as<std::string>("fixed"));
+    runlog.set("serial_device", config["serial"]["device_name"].as<std::string>("/dev/ttyACM0"));
+    runlog.set("recorder_enabled", config["recorder"]["enable"].as<bool>(false));
+    runlog.set("exposure_us", config["hik"]["exposure_time"].as<int>(1500));
+    runlog.set("gain_db", config["hik"]["gain"].as<float>(16.9f));
+    {
+        auto h = config["detect"]["hsv"];
+        char b[64];
+        snprintf(b, sizeof(b), "[%d,%d,%d]", h["low"][0].as<int>(), h["low"][1].as<int>(), h["low"][2].as<int>());
+        runlog.set("hsv_low", b);
+        snprintf(b, sizeof(b), "[%d,%d,%d]", h["high"][0].as<int>(), h["high"][1].as<int>(), h["high"][2].as<int>());
+        runlog.set("hsv_high", b);
+    }
 
     bool enable_gui = config["pipeline"]["enable_gui"].as<bool>(false);
     int frame_q_size = config["pipeline"]["frame_queue_size"].as<int>(2);
@@ -144,6 +160,7 @@ int main() {
     while (app_running) {
         ResultPacket res;
         if (!result_q.pop(res, 10)) {
+            runlog.inc("result_timeouts");
             auto now = std::chrono::steady_clock::now();
             float dt = std::chrono::duration<float>(now - last_ts).count();
             last_ts = now;
@@ -166,6 +183,8 @@ int main() {
             handleKey(cv::waitKey(1) & 0xFF, detect);
             continue;
         }
+
+        runlog.inc("control_frames");
 
         // FPS
         frame_count++;
@@ -234,6 +253,10 @@ int main() {
         if (recorder.enabled())
             recorder.push(res.annotated_frame);
     }
+
+    runlog.set("final_q_mode", tracker.mode() == TrackerMode::STATIONARY ? "STATIONARY" : "MOVING");
+    runlog.set("avg_fps", fps);
+    runlog.save();
 
     recorder.stop();
     frame_q.stop();
