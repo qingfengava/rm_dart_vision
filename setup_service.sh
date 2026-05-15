@@ -37,8 +37,8 @@ uninstall_service() {
 install_service() {
     local force="${2:-}"
 
-    if [[ ! -x "$WORK_DIR/vision" ]]; then
-        echo "❌ vision 未编译 (缺少 $WORK_DIR/vision)"
+    if [[ ! -x "$WORK_DIR/bin/vision" ]]; then
+        echo "❌ vision 未编译 (缺少 $WORK_DIR/bin/vision)"
         echo "   请先运行: bash run.sh build"
         exit 1
     fi
@@ -81,8 +81,9 @@ After=multi-user.target
 Type=simple
 User=$runuser
 WorkingDirectory=$WORK_DIR
+Environment=DART_VISION_HEADLESS=1
 EnvironmentFile=-$WORK_DIR/env.sh
-ExecStart=$WORK_DIR/vision
+ExecStart=$WORK_DIR/bin/vision
 Restart=always
 RestartSec=3
 KillSignal=SIGINT

@@ -8,10 +8,14 @@
 #include "tracker_mode.hpp"
 #include "type.hpp"
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
+#include <cstdlib>
+#include <memory>
 #include <opencv2/highgui.hpp>
+#include <string>
 #include <thread>
 using namespace dart_vision;
 
@@ -35,6 +39,21 @@ struct ResultPacket {
 std::atomic<bool> app_running{true};
 
 void signal_handler(int) { app_running = false; }
+
+bool envTruthy(const char* key) {
+    const char* val = std::getenv(key);
+    if (!val || !*val) return false;
+    std::string s(val);
+    for (auto& c : s)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s == "1" || s == "true" || s == "yes" || s == "on";
+}
+
+bool hasDisplaySession() {
+    const char* display = std::getenv("DISPLAY");
+    const char* wayland = std::getenv("WAYLAND_DISPLAY");
+    return (display && *display) || (wayland && *wayland);
+}
 
 void handleKey(int key, Detect& detect) {
     if (key == 's') detect.printHSV();
@@ -101,12 +120,35 @@ int main() {
     std::signal(SIGTERM, signal_handler);
 
     auto config = YAML::LoadFile("config.yaml");
-    Detect detect(config["detect"]);
+    bool detect_gui_cfg = config["detect"]["enable_gui"].as<bool>(false);
+    bool pipeline_gui_cfg = config["pipeline"]["enable_gui"].as<bool>(false);
+    bool force_headless = envTruthy("DART_VISION_HEADLESS");
+    bool gui_available = !force_headless && hasDisplaySession();
+    if ((detect_gui_cfg || pipeline_gui_cfg) && !gui_available) {
+        std::cout << "[INFO] GUI requested in config, but no display session is available. "
+                     "Switching to headless mode."
+                  << std::endl;
+        config["detect"]["enable_gui"] = false;
+        config["pipeline"]["enable_gui"] = false;
+    }
+
+    std::unique_ptr<Detect> detect_holder;
+    try {
+        detect_holder = std::make_unique<Detect>(config["detect"]);
+    } catch (const cv::Exception& e) {
+        std::cout << "[WARN] Detect GUI init failed, switching to headless mode: "
+                  << e.what() << std::endl;
+        config["detect"]["enable_gui"] = false;
+        config["pipeline"]["enable_gui"] = false;
+        detect_holder = std::make_unique<Detect>(config["detect"]);
+    }
+    Detect& detect = *detect_holder;
     HikCamera camera(config["hik"]);
     SerialDriver serial(config["serial"]);
     KalmanTracker tracker(config["tracker"]);
     Recorder recorder(config["recorder"]);
     RunLogger runlog("data/log");
+    bool enable_gui = config["pipeline"]["enable_gui"].as<bool>(false);
 
     runlog.set("target_mode", config["tracker"]["target_mode"].as<std::string>("fixed"));
     runlog.set("serial_device", config["serial"]["device_name"].as<std::string>("/dev/ttyACM0"));
@@ -122,14 +164,21 @@ int main() {
         runlog.set("hsv_high", b);
     }
 
-    bool enable_gui = config["pipeline"]["enable_gui"].as<bool>(false);
     int frame_q_size = config["pipeline"]["frame_queue_size"].as<int>(2);
     int result_q_size = config["pipeline"]["result_queue_size"].as<int>(1);
 
     ThreadSafeQueue<FramePacket> frame_q(frame_q_size);
     ThreadSafeQueue<ResultPacket> result_q(result_q_size);
 
-    cv::namedWindow("frame", cv::WINDOW_NORMAL);
+    if (enable_gui) {
+        try {
+            cv::namedWindow("frame", cv::WINDOW_NORMAL);
+        } catch (const cv::Exception& e) {
+            std::cout << "[WARN] Frame GUI init failed, switching to headless mode: "
+                      << e.what() << std::endl;
+            enable_gui = false;
+        }
+    }
 
     camera.init();
     camera.start();
@@ -180,7 +229,8 @@ int main() {
                 SendDartCmdData send{};
                 serial.write(to_vector(send));
             }
-            handleKey(cv::waitKey(1) & 0xFF, detect);
+            if (enable_gui)
+                handleKey(cv::waitKey(1) & 0xFF, detect);
             continue;
         }
 
@@ -265,6 +315,7 @@ int main() {
     det_thread.join();
     serial.stop();
     camera.stop();
-    cv::destroyAllWindows();
+    if (enable_gui)
+        cv::destroyAllWindows();
     return 0;
 }
