@@ -20,8 +20,6 @@ detect:
     min_area: 10
     max_area: 50000000
     one_one_diff: 0.4
-  base_filter:
-    enable: true           # 关闭检测层过滤，交给 tracker 输出层选最低灯
 ·  roi:
     enable: false           # 是否启用 ROI 区域限制
     x_ratio: [0.0, 1.0]     # 横向范围 (图像宽度比例)
@@ -33,7 +31,7 @@ pipeline:
   result_queue_size: 1       # 检测→控制 队列深度
 
 tracker:
-  target_mode: "fixed"             # fixed / random_fixed / random_moving
+  mode: "default"                   # default / base_fixed / base_rand / base_rand_move / base_end_move
 
   stationary:                      # 静止模式参数
     q_v: 0.5

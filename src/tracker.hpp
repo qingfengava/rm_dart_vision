@@ -176,6 +176,26 @@ public:
         return true;
     }
 
+    bool pickHighest(GreenLight& out) const {
+        const Track* highest = nullptr;
+        float min_y = std::numeric_limits<float>::max();
+        for (const auto& t : tracks_) {
+            if (t.state != Track::CONFIRMED) continue;
+            if (t.x_pred[1] < min_y) { min_y = t.x_pred[1]; highest = &t; }
+        }
+        if (!highest) return false;
+        const MatrixX1& x = highest->x_pred;
+        out.center = cv::Point2f(static_cast<float>(x[0]), static_cast<float>(x[1]));
+        out.bbox = cv::Rect2f(
+            static_cast<float>(x[0] - x[4] * 0.5f),
+            static_cast<float>(x[1] - x[5] * 0.5f),
+            static_cast<float>(x[4]),
+            static_cast<float>(x[5])
+        );
+        out.score = min_y;
+        return true;
+    }
+
     TrackInfo bestTrackInfo() const {
         TrackInfo info;
         const Track* best = nullptr;

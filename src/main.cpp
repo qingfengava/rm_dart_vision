@@ -22,6 +22,30 @@ using namespace dart_vision;
 struct SendDartCmdData {
     float diff_center_norm = 0;
     uint32_t sum;
+
+    void calc_sum() {
+        sum = 0;
+        for (uint8_t i = 0; i < 4; ++i) {
+            sum += reinterpret_cast<const uint8_t*>(this)[i];
+        }
+    }
+} __attribute__((packed));
+
+struct ReceiveFrame {
+    enum TargetType : uint8_t {
+        TARGET_DEFAULT = 0, // 瞄前哨站
+        TARGET_BASE_FIXED = 1,
+        TARGET_BASE_RAND = 2,
+        TARGET_BASE_RAND_MOVE = 3,
+        TARGET_BASE_END_MOVE = 4
+    };
+
+    uint8_t head {};
+    TargetType target {};
+
+    bool valid() const {
+        return head == 0xAA;
+    }
 } __attribute__((packed));
 
 struct FramePacket {
@@ -36,15 +60,18 @@ struct ResultPacket {
     std::chrono::steady_clock::time_point timestamp;
 };
 
-std::atomic<bool> app_running{true};
+std::atomic<bool> app_running { true };
 
-void signal_handler(int) { app_running = false; }
+void signal_handler(int) {
+    app_running = false;
+}
 
 bool envTruthy(const char* key) {
     const char* val = std::getenv(key);
-    if (!val || !*val) return false;
+    if (!val || !*val)
+        return false;
     std::string s(val);
-    for (auto& c : s)
+    for (auto& c: s)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return s == "1" || s == "true" || s == "yes" || s == "on";
 }
@@ -56,18 +83,32 @@ bool hasDisplaySession() {
 }
 
 void handleKey(int key, Detect& detect) {
-    if (key == 's') detect.printHSV();
-    else if (key == 'r') detect.resetHSV();
+    if (key == 's')
+        detect.printHSV();
+    else if (key == 'r')
+        detect.resetHSV();
 }
 
-void drawStatus(cv::Mat& img, const TrackerMode mode, const TrackInfo& info,
-                float cx_norm, float cy_norm, float fps) {
+void drawStatus(
+    cv::Mat& img,
+    const TrackerMode mode,
+    const TrackInfo& info,
+    float cx_norm,
+    float cy_norm,
+    float fps
+) {
     int y = 20;
     auto put = [&](const std::string& txt, cv::Scalar color = cv::Scalar(0, 255, 0)) {
-        cv::putText(img, txt, cv::Point(8, y), cv::FONT_HERSHEY_SIMPLEX,
-                    0.45, cv::Scalar(0, 0, 0), 2);
-        cv::putText(img, txt, cv::Point(8, y), cv::FONT_HERSHEY_SIMPLEX,
-                    0.45, color, 1);
+        cv::putText(
+            img,
+            txt,
+            cv::Point(8, y),
+            cv::FONT_HERSHEY_SIMPLEX,
+            0.45,
+            cv::Scalar(0, 0, 0),
+            2
+        );
+        cv::putText(img, txt, cv::Point(8, y), cv::FONT_HERSHEY_SIMPLEX, 0.45, color, 1);
         y += 18;
     };
 
@@ -91,7 +132,8 @@ void drawStatus(cv::Mat& img, const TrackerMode mode, const TrackInfo& info,
 void camera_thread_fn(HikCamera& camera, ThreadSafeQueue<FramePacket>& frame_q) {
     while (app_running) {
         cv::Mat src = camera.read();
-        if (src.empty()) continue;
+        if (src.empty())
+            continue;
         FramePacket pkt;
         pkt.frame = src.clone();
         pkt.timestamp = std::chrono::steady_clock::now();
@@ -99,12 +141,15 @@ void camera_thread_fn(HikCamera& camera, ThreadSafeQueue<FramePacket>& frame_q) 
     }
 }
 
-void detect_thread_fn(Detect& detect,
-                      ThreadSafeQueue<FramePacket>& frame_q,
-                      ThreadSafeQueue<ResultPacket>& result_q) {
+void detect_thread_fn(
+    Detect& detect,
+    ThreadSafeQueue<FramePacket>& frame_q,
+    ThreadSafeQueue<ResultPacket>& result_q
+) {
     while (app_running) {
         FramePacket pkt;
-        if (!frame_q.pop(pkt, 5)) continue;
+        if (!frame_q.pop(pkt, 5))
+            continue;
         auto lights = detect.detect(pkt.frame);
         ResultPacket res;
         res.lights = std::move(lights);
@@ -136,8 +181,8 @@ int main() {
     try {
         detect_holder = std::make_unique<Detect>(config["detect"]);
     } catch (const cv::Exception& e) {
-        std::cout << "[WARN] Detect GUI init failed, switching to headless mode: "
-                  << e.what() << std::endl;
+        std::cout << "[WARN] Detect GUI init failed, switching to headless mode: " << e.what()
+                  << std::endl;
         config["detect"]["enable_gui"] = false;
         config["pipeline"]["enable_gui"] = false;
         detect_holder = std::make_unique<Detect>(config["detect"]);
@@ -150,7 +195,13 @@ int main() {
     RunLogger runlog("data/log");
     bool enable_gui = config["pipeline"]["enable_gui"].as<bool>(false);
 
-    runlog.set("target_mode", config["tracker"]["target_mode"].as<std::string>("fixed"));
+    std::string run_mode = config["tracker"]["mode"].as<std::string>("default");
+    auto selectOutput = [&](GreenLight& out) {
+        if (run_mode == "default") return tracker.pickHighest(out);
+        return tracker.pickLowest(out);
+    };
+
+    runlog.set("mode", run_mode);
     runlog.set("serial_device", config["serial"]["device_name"].as<std::string>("/dev/ttyACM0"));
     runlog.set("recorder_enabled", config["recorder"]["enable"].as<bool>(false));
     runlog.set("exposure_us", config["hik"]["exposure_time"].as<int>(1500));
@@ -158,9 +209,23 @@ int main() {
     {
         auto h = config["detect"]["hsv"];
         char b[64];
-        snprintf(b, sizeof(b), "[%d,%d,%d]", h["low"][0].as<int>(), h["low"][1].as<int>(), h["low"][2].as<int>());
+        snprintf(
+            b,
+            sizeof(b),
+            "[%d,%d,%d]",
+            h["low"][0].as<int>(),
+            h["low"][1].as<int>(),
+            h["low"][2].as<int>()
+        );
         runlog.set("hsv_low", b);
-        snprintf(b, sizeof(b), "[%d,%d,%d]", h["high"][0].as<int>(), h["high"][1].as<int>(), h["high"][2].as<int>());
+        snprintf(
+            b,
+            sizeof(b),
+            "[%d,%d,%d]",
+            h["high"][0].as<int>(),
+            h["high"][1].as<int>(),
+            h["high"][2].as<int>()
+        );
         runlog.set("hsv_high", b);
     }
 
@@ -174,8 +239,8 @@ int main() {
         try {
             cv::namedWindow("frame", cv::WINDOW_NORMAL);
         } catch (const cv::Exception& e) {
-            std::cout << "[WARN] Frame GUI init failed, switching to headless mode: "
-                      << e.what() << std::endl;
+            std::cout << "[WARN] Frame GUI init failed, switching to headless mode: " << e.what()
+                      << std::endl;
             enable_gui = false;
         }
     }
@@ -185,20 +250,28 @@ int main() {
     recorder.init();
 
     serial.start([&](const std::vector<uint8_t>& data) {
-        if (data.size() >= 2 && data[0] == 0xAA) {
-            switch (data[1]) {
-                case 0: tracker.setTargetMode("fixed"); break;
-                case 1: tracker.setTargetMode("fixed"); break;
-                case 2: tracker.setTargetMode("random_fixed"); break;
-                case 3: tracker.setTargetMode("random_moving"); break;
-                case 4: tracker.setTargetMode("end_moving"); break;
-            }
+        if (data.size() < sizeof(ReceiveFrame))
+            return;
+        auto frame = from_vector<ReceiveFrame>(data);
+        if (!frame.valid())
+            return;
+        switch (frame.target) {
+            case ReceiveFrame::TARGET_DEFAULT:
+                run_mode = "default";        tracker.setTargetMode("fixed"); break;
+            case ReceiveFrame::TARGET_BASE_FIXED:
+                run_mode = "base_fixed";     tracker.setTargetMode("fixed"); break;
+            case ReceiveFrame::TARGET_BASE_RAND:
+                run_mode = "base_rand";      tracker.setTargetMode("random_fixed"); break;
+            case ReceiveFrame::TARGET_BASE_RAND_MOVE:
+                run_mode = "base_rand_move"; tracker.setTargetMode("random_moving"); break;
+            case ReceiveFrame::TARGET_BASE_END_MOVE:
+                run_mode = "base_end_move";  tracker.setTargetMode("end_moving"); break;
         }
     });
 
     std::thread cam_thread(camera_thread_fn, std::ref(camera), std::ref(frame_q));
-    std::thread det_thread(detect_thread_fn, std::ref(detect),
-                           std::ref(frame_q), std::ref(result_q));
+    std::thread
+        det_thread(detect_thread_fn, std::ref(detect), std::ref(frame_q), std::ref(result_q));
 
     auto last_ts = std::chrono::steady_clock::now();
     int last_w = 640;
@@ -217,16 +290,15 @@ int main() {
             tracker.update({}, dt, 0);
 
             GreenLight best;
-            if (tracker.pickLowest(best)) {
+            if (selectOutput(best)) {
                 float cx_norm = best.center.x / static_cast<float>(last_w) * 2.0f - 1.0f;
                 SendDartCmdData send;
                 send.diff_center_norm = cx_norm;
-                send.sum = 0;
-                for (uint8_t i = 0; i < 4; ++i)
-                    send.sum += reinterpret_cast<uint8_t*>(&send)[i];
+                send.calc_sum();
                 serial.write(to_vector(send));
             } else {
-                SendDartCmdData send{};
+                SendDartCmdData send;
+                send.calc_sum();
                 serial.write(to_vector(send));
             }
             if (enable_gui)
@@ -250,7 +322,8 @@ int main() {
         auto now = res.timestamp;
         float dt = std::chrono::duration<float>(now - last_ts).count();
         last_ts = now;
-        if (dt <= 0.0f || dt > 1.0f) dt = 0.005f;
+        if (dt <= 0.0f || dt > 1.0f)
+            dt = 0.005f;
 
         int w = res.annotated_frame.size().width;
         int h = res.annotated_frame.size().height;
@@ -259,28 +332,31 @@ int main() {
 
         GreenLight best;
         float cx_norm = 0, cy_norm = 0;
-        bool tracking = tracker.pickLowest(best);
+        bool tracking = selectOutput(best);
         if (tracking) {
             cx_norm = best.center.x / static_cast<float>(w) * 2.0f - 1.0f;
             cy_norm = best.center.y / static_cast<float>(h) * 2.0f - 1.0f;
             SendDartCmdData send;
             send.diff_center_norm = cx_norm;
-            send.sum = 0;
-            for (uint8_t i = 0; i < 4; ++i)
-                send.sum += reinterpret_cast<uint8_t*>(&send)[i];
+            send.calc_sum();
             serial.write(to_vector(send));
             cv::rectangle(res.annotated_frame, best.bbox, cv::Scalar(0, 0, 255), 2);
             cv::circle(res.annotated_frame, best.center, 4, cv::Scalar(0, 255, 255), -1);
         } else {
-            SendDartCmdData send{};
+            SendDartCmdData send;
+            send.calc_sum();
             serial.write(to_vector(send));
         }
 
         if (enable_gui) {
             // ROI boundary
             if (detect.roiEnabled())
-                cv::rectangle(res.annotated_frame, detect.getROIRect(res.annotated_frame.size()),
-                              cv::Scalar(0, 255, 0), 1);
+                cv::rectangle(
+                    res.annotated_frame,
+                    detect.getROIRect(res.annotated_frame.size()),
+                    cv::Scalar(0, 255, 0),
+                    1
+                );
 
             // Track trajectory
             auto info = tracker.bestTrackInfo();
@@ -288,14 +364,20 @@ int main() {
                 std::vector<cv::Point> pts(info.history.begin(), info.history.end());
                 for (size_t i = 1; i < pts.size(); ++i) {
                     float alpha = static_cast<float>(i) / pts.size();
-                    cv::line(res.annotated_frame, pts[i - 1], pts[i],
-                             cv::Scalar(0, 255 * alpha, 255 * (1 - alpha)), 1);
+                    cv::line(
+                        res.annotated_frame,
+                        pts[i - 1],
+                        pts[i],
+                        cv::Scalar(0, 255 * alpha, 255 * (1 - alpha)),
+                        1
+                    );
                 }
             }
 
             drawStatus(res.annotated_frame, tracker.mode(), info, cx_norm, cy_norm, fps);
 
-            if (!res.mask.empty()) cv::imshow("mask", res.mask);
+            if (!res.mask.empty())
+                cv::imshow("mask", res.mask);
             cv::imshow("frame", res.annotated_frame);
             handleKey(cv::waitKey(1) & 0xFF, detect);
         }
