@@ -22,6 +22,8 @@ public:
         set("start", oss.str());
     }
 
+    ~RunLogger() { save(); }
+
     void set(const std::string& key, const std::string& val) { map_[key] = val; }
     void set(const std::string& key, int val) { map_[key] = std::to_string(val); }
     void set(const std::string& key, float val, int prec = 1) {

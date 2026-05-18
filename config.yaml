@@ -53,6 +53,7 @@ tracker:
   max_tentative_frames: 5          # 未确认 track 最大存活帧数
   transition_alpha: 0.3            # Q 平滑过渡因子
   iteration_num: 2                 # EKF GN 迭代次数
+  serial_offset: 0.1               # 串口偏移修正 (正=右偏, 负=左偏, [-1,1])
 
   auto_reset:
     jump_distance_px: 50           # 判定跳变的最短像素距离

@@ -156,15 +156,15 @@ public:
         return true;
     }
 
-    bool pickLowest(GreenLight& out) const {
-        const Track* lowest = nullptr;
-        float max_y = -1;
+    bool pickRightmost(GreenLight& out) const {
+        const Track* best = nullptr;
+        float max_x = -1;
         for (const auto& t : tracks_) {
             if (t.state != Track::CONFIRMED) continue;
-            if (t.x_pred[1] > max_y) { max_y = t.x_pred[1]; lowest = &t; }
+            if (t.x_pred[0] > max_x) { max_x = t.x_pred[0]; best = &t; }
         }
-        if (!lowest) return false;
-        const MatrixX1& x = lowest->x_pred;
+        if (!best) return false;
+        const MatrixX1& x = best->x_pred;
         out.center = cv::Point2f(static_cast<float>(x[0]), static_cast<float>(x[1]));
         out.bbox = cv::Rect2f(
             static_cast<float>(x[0] - x[4] * 0.5f),
@@ -172,19 +172,19 @@ public:
             static_cast<float>(x[4]),
             static_cast<float>(x[5])
         );
-        out.score = max_y;
+        out.score = max_x;
         return true;
     }
 
-    bool pickHighest(GreenLight& out) const {
-        const Track* highest = nullptr;
-        float min_y = std::numeric_limits<float>::max();
+    bool pickLeftmost(GreenLight& out) const {
+        const Track* best = nullptr;
+        float min_x = std::numeric_limits<float>::max();
         for (const auto& t : tracks_) {
             if (t.state != Track::CONFIRMED) continue;
-            if (t.x_pred[1] < min_y) { min_y = t.x_pred[1]; highest = &t; }
+            if (t.x_pred[0] < min_x) { min_x = t.x_pred[0]; best = &t; }
         }
-        if (!highest) return false;
-        const MatrixX1& x = highest->x_pred;
+        if (!best) return false;
+        const MatrixX1& x = best->x_pred;
         out.center = cv::Point2f(static_cast<float>(x[0]), static_cast<float>(x[1]));
         out.bbox = cv::Rect2f(
             static_cast<float>(x[0] - x[4] * 0.5f),
@@ -192,7 +192,7 @@ public:
             static_cast<float>(x[4]),
             static_cast<float>(x[5])
         );
-        out.score = min_y;
+        out.score = min_x;
         return true;
     }
 

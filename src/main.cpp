@@ -196,9 +196,10 @@ int main() {
     bool enable_gui = config["pipeline"]["enable_gui"].as<bool>(false);
 
     std::string run_mode = config["tracker"]["mode"].as<std::string>("default");
+    float serial_offset = config["tracker"]["serial_offset"].as<float>(0.0f);
     auto selectOutput = [&](GreenLight& out) {
-        if (run_mode == "default") return tracker.pickHighest(out);
-        return tracker.pickLowest(out);
+        if (run_mode == "default") return tracker.pickLeftmost(out);
+        return tracker.pickRightmost(out);
     };
 
     runlog.set("mode", run_mode);
@@ -292,6 +293,9 @@ int main() {
             GreenLight best;
             if (selectOutput(best)) {
                 float cx_norm = best.center.x / static_cast<float>(last_w) * 2.0f - 1.0f;
+                cx_norm += serial_offset;
+                if (cx_norm > 1.0f) cx_norm = 1.0f;
+                if (cx_norm < -1.0f) cx_norm = -1.0f;
                 SendDartCmdData send;
                 send.diff_center_norm = cx_norm;
                 send.calc_sum();
@@ -335,6 +339,9 @@ int main() {
         bool tracking = selectOutput(best);
         if (tracking) {
             cx_norm = best.center.x / static_cast<float>(w) * 2.0f - 1.0f;
+            cx_norm += serial_offset;
+            if (cx_norm > 1.0f) cx_norm = 1.0f;
+            if (cx_norm < -1.0f) cx_norm = -1.0f;
             cy_norm = best.center.y / static_cast<float>(h) * 2.0f - 1.0f;
             SendDartCmdData send;
             send.diff_center_norm = cx_norm;
@@ -348,8 +355,8 @@ int main() {
             serial.write(to_vector(send));
         }
 
-        if (enable_gui) {
-            // ROI boundary
+        bool draw_overlay = enable_gui || recorder.enabled();
+        if (draw_overlay) {
             if (detect.roiEnabled())
                 cv::rectangle(
                     res.annotated_frame,
@@ -358,7 +365,6 @@ int main() {
                     1
                 );
 
-            // Track trajectory
             auto info = tracker.bestTrackInfo();
             if (info.valid && info.history.size() > 1) {
                 std::vector<cv::Point> pts(info.history.begin(), info.history.end());
@@ -375,7 +381,9 @@ int main() {
             }
 
             drawStatus(res.annotated_frame, tracker.mode(), info, cx_norm, cy_norm, fps);
+        }
 
+        if (enable_gui) {
             if (!res.mask.empty())
                 cv::imshow("mask", res.mask);
             cv::imshow("frame", res.annotated_frame);
